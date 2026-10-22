@@ -1,0 +1,8 @@
+# Единый перевод строки в репозитории: скрипты и Dockerfile должны быть LF,
+# иначе они ломаются в Linux-контейнерах.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary

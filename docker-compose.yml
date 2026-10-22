@@ -1,0 +1,93 @@
+# Профили:
+#   bot-only      — только бот (MODE=mock, бэкенд не нужен)
+#   backend-only  — только домен (MODE=mock, инфраструктура не нужна)
+#   miniapp-only  — Mini App + домен
+#   all           — полный стек (bot + backend + miniapp)
+#
+# Секреты в этом файле не хранятся: положите их в .env (шаблон — .env.example).
+# MODE=mock|real и ADAPTER_* берутся из окружения, правки compose не нужны.
+name: autoselect
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend-service/Dockerfile
+    profiles: ["backend-only", "miniapp-only", "all"]
+    env_file:
+      - .env
+    environment:
+      SERVICE: backend
+      MODE: ${MODE:-mock}
+      LEGACY_BACKEND_URL: ${LEGACY_BACKEND_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  bot:
+    build:
+      context: .
+      dockerfile: bot-service/Dockerfile
+    profiles: ["bot-only", "all"]
+    env_file:
+      - .env
+    depends_on:
+      backend:
+        condition: service_started
+        required: false
+    environment:
+      SERVICE: bot
+      MODE: ${MODE:-mock}
+      BOT_USERNAME: ${BOT_USERNAME:-}
+      BACKEND_URL: http://backend:8000
+      MINIAPP_URL: ${MINIAPP_URL:-}
+      REDIS_URL: ${REDIS_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+  miniapp:
+    build:
+      context: .
+      dockerfile: miniapp-service/Dockerfile
+    profiles: ["miniapp-only", "all"]
+    depends_on:
+      backend:
+        condition: service_started
+        required: false
+    environment:
+      BACKEND_URL: http://backend:8000
+      BOT_USERNAME: ${BOT_USERNAME:-}
+      MODE: ${MODE:-mock}
+    ports:
+      - "${MINIAPP_PORT:-8080}:8080"
+
+  edge:
+    build:
+      context: .
+      dockerfile: edge-service/Dockerfile
+    profiles: ["edge", "all"]
+    depends_on:
+      miniapp:
+        condition: service_started
+        required: false
+    environment:
+      TLS_MODE: ${TLS_MODE:-selfsigned}
+      DOMAIN: ${DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      TUNNEL_PROVIDER: ${TUNNEL_PROVIDER:-cloudflared}
+      UPSTREAM: http://miniapp:8080
+      EDGE_HTTP_PORT: 80
+      EDGE_HTTPS_PORT: 443
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - edge_certs:/app/.certs
+
+volumes:
+  edge_certs:
